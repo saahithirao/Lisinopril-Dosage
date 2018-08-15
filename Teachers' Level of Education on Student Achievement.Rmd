@@ -1,0 +1,216 @@
+---
+title: "MATH245 Final Project"
+author: "Saahithi Rao and Yuta Baba"
+output:
+  word_document: default
+  pdf_document: default
+---
+```{r, include = FALSE}
+public <- read.csv("C:/Users/Saahithi/Downloads/Revised_ 245 Final Project - Sheet1.csv")
+library(car)
+library(Hmisc)
+```
+
+```{r}
+##Cleaning variables
+#Converting School and Type to factor variables
+public$School <- as.factor(public$School)
+public$Type <- as.factor(public$Type)
+#Creating Ratio Variables (Faculty Ratio and Degree Ratio)
+public$FacultyRatio <- public$Students/public$Teachers
+public$DegreeRatio <- public$Advanced/public$Bachelors
+index <- which(is.infinite(public$DegreeRatio))
+public2 <- public[-index, ]#bachelors are zero
+##Create a new variable based on zip code to see whether schools are in Twin Cities or not
+#from http://www.city-data.com/zipmaps/Minneapolis-Minnesota.html
+minneapolis <- c(55430, 55421, 55418, 55412, 55413, 55411, 55401, 55414, 55455, 55415, 55464, 55402, 55405, 55403, 55404, 55416, 55408, 55407, 55406, 55409, 55410, 55419, 55417, 55450, 55423)
+#from http://www.city-data.com/zipmaps/St.-Paul-Minnesota.html
+stPaul <- c(55113, 55117, 55108, 55114, 55130, 55104, 55103, 55106, 55155, 55101, 55105, 55116, 55102, 55107, 55119, 55118)
+twincities <- c(minneapolis, stPaul)
+public2$Cities <- ifelse(public2$ZipCode %in% twincities, 1, 0)
+```
+
+```{r}
+##Scatter Plots
+plot(Math ~ Advanced, data = public)
+scatterplotMatrix(public2[, c("Math", "Cities", "StartingYear", "Type", "White", "NonWhite", "Lunch", "Graduation", "Students", "Teachers", "Advanced", "FacultyRatio", "DegreeRatio")], reg.line = FALSE, smooth = FALSE)
+
+#Removed reading and science variables
+public3 <- public2[ ,-c(10,11)] 
+#Omitted schools that were missing data
+public3 <- na.omit(public3)
+
+#Log transforming variables 
+public3$logNonWhite <- log(public3$NonWhite)
+public3$logLunch <- log(public3$Lunch)
+public3$logStudents <- log(public3$Students)
+public3$logTeachers <- log(public3$Teachers)
+public3$logDegreeRatio <- log(public3$DegreeRatio)
+
+#Scatterplots
+plot(Math ~ logNonWhite, data = public3, ylab = "Math Proficiency Rate", xlab = "Log of the Percentage of Non-White Students")
+plot(Math ~ logLunch, data = public3, ylab = "Math Proficiency Rate", xlab = "Log of the Percentage of Free/Reduced Lunch")
+
+#Checking for unusual values 
+which(is.infinite(public3$logNonWhite))
+which(public3$NonWhite == 0)
+which(is.infinite(public3$logLunch))
+which(public3$Lunch == 0)
+which(is.infinite(public3$logStudents))
+index2 <- which(is.infinite(public3$logDegreeRatio))#masters are zero
+ind <- which(public3$Graduation == 100)
+public3$NoGraduation <- 100 - public3$Graduation
+#Setting Schools with NoGraduation values that are 0 to 0.00001 to log transform the variable
+public3$NoGraduation[ind] <- 0.00001
+hist(public3$NoGraduation)
+public3$logNoGrad <- log(public3$NoGraduation)
+hist(public3$logNoGrad)
+which(is.infinite(public3$logNoGrad))
+scatterplotMatrix(public3[ -index2, c("Math", "logNonWhite", "logLunch", "logNoGrad", "FacultyRatio", "logStudents", "logTeachers", "logDegreeRatio")], reg.line = FALSE, smooth = FALSE) 
+```
+
+```{r}
+#Relevel Type
+public3$Type <- relevel(public3$Type, "Public") 
+#Model 1 with all explanatory variables of interest and schools with values where masters are zero are omitted
+public.lm <- lm(Math ~ Cities + StartingYear + Type + logNonWhite + logLunch + logNoGrad + logStudents + logTeachers + FacultyRatio, data = public3, subset = -index2)
+summary(public.lm)
+anova(public.lm)
+
+#Diagnostics of Model 1
+plot(fitted(public.lm), rstudent(public.lm), xlab = "Fitted values", ylab = "Studentized residuals", main = "Studentized Residuals against Fitted Values")
+abline(h = c(-3, 0, 3))
+which(rstudent(public.lm) > 3)
+index3 <- 200
+#comparing outlier (Higher Ground Secondary Academy) to overall means of variables
+#The school focuses on STEM fields so its values may be a little skewed and it is justified to remove it from analysis
+public3[index3, c(7, 8, 9, 12, 13, 14, 18)]
+apply(public3[ , c(7, 8, 9, 12, 13, 14, 18)], 2, mean)
+#Further diagnostics confirm that it is an outlier
+plot(public.lm, which = 2)
+plot(public.lm, which = 4)
+which(hatvalues(public.lm) > 3*10/215)
+influencePlot(public.lm, id.n=3)
+
+#Model 2 with all missing data and outliers omitted
+public.lm2 <- lm(Math ~ Cities + StartingYear + Type + logNonWhite + logLunch + logNoGrad + logStudents +logTeachers + FacultyRatio, data = public3, subset = -c(index2, index3))
+summary(public.lm2)
+anova(public.lm2)
+#Multicollinearity is a problem
+vif(public.lm2)
+```
+
+```{r}
+#Summary of variables after outliers are removed
+public4 <- public3[-c(index2, index3), ]
+summary(public4)
+sd(public4$Math)
+sd(public4$NonWhite)
+sd(public4$Lunch)
+sd(public4$Graduation)
+sd(public4$Students)
+sd(public4$Teachers)
+sd(public4$Bachelors)
+sd(public4$Advanced)
+cities <- as.factor(public4$Cities)
+summary(cities)
+describe(public4[ , c("Cities", "StartingYear", "Type")])
+
+#Histogram Plots
+hist(public$NonWhite, main = "Histogram of the Percentage of Non White Students", xlab = "Percentage of Non White Students (%)")
+hist(public3$Graduation, main = "Histogram of the Graduation Rate", xlab = "The Graduation Rate (%)")
+hist(public3$DegreeRatio, main = "Histogram of the Ratio of Advanced Degrees to Bachelor's Degrees of Teachers", xlab = "Degree Ratio (%)")
+hist(public3$Math, main = "Histogram of Math Proficiency Rates", xlab = "Student Math Proficiency Rate (%)")
+public3[index3, ]
+```
+
+```{r}
+#Model 3: Removed logTeachers because of multicollinearity 
+public.lm3 <- update(public.lm2, . ~ . -logTeachers)
+anova(public.lm3, public.lm2)
+#Multicollinearity is reduced
+vif(public.lm3)
+summary(public.lm3)
+
+#Model 4 with Starting Year removed as it was not significant in model 3
+public.lm4 <- update(public.lm3, .~. - StartingYear)
+anova(public.lm4, public.lm3)
+summary(public.lm4)
+
+library(reshape)
+#Combining aLternative, charter, magnet, and virtual schools into one variable
+public3$Type2 <- combine_factor(public3$Type , c(1, 2, 1, 1, 1))
+#Model 5 with type2 variable (all unconventional public schools combined)
+public.lm5 <- update(public.lm4, .~. - Type + Type2)
+#Cities is not significant
+summary(public.lm5)
+anova(public.lm5)
+#Diagnostics of Model 5
+plot(fitted(public.lm5), rstudent(public.lm5))
+abline(h = c(-3, 3))
+plot(public.lm5, which = 4)
+influencePlot(public.lm5)
+
+#Model 6 with Cities removed
+public.lm6 <- update(public.lm5, .~. - Cities)
+anova(public.lm6, public.lm5)
+#Faculty Ratio is not significant but could be related to number of students
+summary(public.lm6)
+
+#Model 7 - Adding interaction term between Students and Faculty Ratio
+public.lm7 <- update(public.lm6, .~. + logStudents:FacultyRatio)
+#Model 6 is preferred without the interaction term
+anova(public.lm6, public.lm7)
+
+#Model 8 - FacultyRatio removed
+public.lm8 <- update(public.lm6, .~. - FacultyRatio)
+anova(public.lm8, public.lm6)
+summary(public.lm8)
+
+#Model 9 
+#Initial scatterplots of logLunch and logNonWhite indicated slight curvature so squared terms were tested
+#Squared terms, were however, not needed
+public.lm9 <- update(public.lm8, .~. + I(logLunch^2))
+anova(public.lm8, public.lm9)
+#Model 10
+public.lm10 <- update(public.lm8, .~. + I(logNonWhite^2))
+anova(public.lm8, public.lm10)
+
+#Diagnostics of Model 8
+vif(public.lm8)
+plot(fitted(public.lm8), rstudent(public.lm8))
+abline(h = c(-3, 0, 3))
+plot(public.lm8, which = 2)
+plot(public.lm8, which = 4)
+which(hatvalues(public.lm8) > 3*6/214)
+influencePlot(public.lm8, id.n=3)
+```
+
+```{r}
+# Model 11: Add the degree level ratio of teachers
+public.lm11 <- update(public.lm8, .~. + logDegreeRatio)
+summary(public.lm11)
+vif(public.lm11)
+plot(fitted(public.lm11), rstudent(public.lm11))
+abline(h = c(-2, 0, 2, 3))
+plot(public.lm11, which = 2)
+plot(public.lm11, which = 4)
+which(hatvalues(public.lm11) > 3*7/214)
+influencePlot(public.lm11, id.n=3)
+plot(public.lm11)
+```
+
+```{r}
+#Analysis of Coefficients 
+2.1850*log(2)
+quartile <- qt(.975, 207)
+upper <- 2.1850 + quartile*1.0092
+lower <- 2.1850 - quartile*1.0092
+upper*log(2)
+lower*log(2)
+
+-4.7843*log(2)
+-11.5691*log(2)
+-1.2899*log(2)
+5.5083*log(2)
+```
